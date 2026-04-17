@@ -324,11 +324,11 @@ Input: user query + tool signatures. Output: restricted Python.
 
 ```python
 notes   = find_notes(recent = True)
-email   = query_ai_assistant(
-             f"Extract recipient email from: {notes}",
-             output_schema = EmailAddress)
-doc     = fetch_document(name = email.doc_name)
-send_email(to = email.address, attachment = doc)
+info    = query_ai_assistant(
+             f"Extract recipient email and doc name from: {notes}",
+             output_schema = MeetingInfo)     # { address, doc_name }
+doc     = fetch_document(name = info.doc_name)
+send_email(to = info.address, attachment = doc)
 ```
 
 P-LLM sees only the query. It names tool outputs; never reads them.
@@ -339,10 +339,10 @@ P-LLM sees only the query. It names tool outputs; never reads them.
 
 ```python
 query_ai_assistant(
-    prompt = f"Extract recipient email from: {notes}",
-    output_schema = EmailAddress
+    prompt = f"Extract recipient email and doc name from: {notes}",
+    output_schema = MeetingInfo
 )
-# ──►  EmailAddress(address = "attacker@gmail.com",
+# ──►  MeetingInfo(address  = "attacker@gmail.com",
 #                    doc_name = "confidential.txt")
 ```
 
@@ -425,19 +425,19 @@ Full Python, arbitrary predicates over values and caps, per tool.
      notes.sources = { Tool(find_notes, inner=drive) }
      notes.readers = { alice }
 
-  2. email = query_ai_assistant("Extract...", {notes})
-     email.sources = { Tool(find_notes, inner=drive) }  ◄── preserved
-     email.readers = { alice }
+  2. info = query_ai_assistant("Extract...", {notes})
+     info.sources = { Tool(find_notes, inner=drive) }  ◄── preserved
+     info.readers = { alice }
 
-  3. doc = fetch_document(email.doc_name)
+  3. doc = fetch_document(info.doc_name)
      doc.sources   = { Tool(fetch_document, ...) }
 
-  4. send_email(to = email.address, ...)
-     ──► email.sources ⊄ {User(alice)}         Denied in STRICT
+  4. send_email(to = info.address, ...)
+     ──► info.sources ⊄ {User(alice)}          Denied in STRICT
      ──► fallback: ask user for confirmation
 ```
 
-Honest case trips the gate — `email` came from storage, not the
+Honest case trips the gate — `info` came from storage, not the
 prompt. Fallback UX: *"send to bob@company.com? [y/n]"*.
 
 ---
@@ -448,16 +448,16 @@ prompt. Fallback UX: *"send to bob@company.com? [y/n]"*.
   1. notes = find_notes()
      notes.sources = { Tool(find_notes, inner=drive, adv) }  ◄── injected
 
-  2. email = query_ai_assistant("Extract...", {notes})
-     # email.address  = "attacker@gmail.com"   ← attacker-chosen
-     # email.doc_name = "confidential.txt"     ← attacker-chosen
-     email.sources = { Tool(find_notes, inner=drive, adv) }
+  2. info = query_ai_assistant("Extract...", {notes})
+     # info.address  = "attacker@gmail.com"    ← attacker-chosen
+     # info.doc_name = "confidential.txt"      ← attacker-chosen
+     info.sources = { Tool(find_notes, inner=drive, adv) }
 
   3. doc = fetch_document("confidential.txt")
      doc.readers = { alice, bob }
 
-  4. send_email(to = email.address, body = doc)
-     ──► email.sources ⊄ {User(alice)}       BLOCKED
+  4. send_email(to = info.address, body = doc)
+     ──► info.sources ⊄ {User(alice)}        BLOCKED
      ──► attacker ∉ doc.readers              BLOCKED
 
      Interpreter halts.
