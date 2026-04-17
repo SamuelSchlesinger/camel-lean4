@@ -506,11 +506,11 @@ capability `(readers, sources)`. The interpreter propagates the
 capability up as the tree evaluates.
 
 ```
-                send_email(addr, body)      ◄── protected call
+                send_email(to, body)        ◄── protected call
                        │
             ┌──────────┴──────────┐
             │                     │
-        email.addr               body
+        info.address             body
         readers = ⊤              readers = {alice, bob}
         sources = {adv}          sources = {Tool(drive)}
             ▲                     ▲
@@ -760,13 +760,14 @@ Our formalization does not model time or external observers.
 
 # Scope gap 3 — policy correctness
 
-Policy with a hole:
+Policy with a hole — pattern-based, ignores capability:
 
 ```python
-def send_email_policy(tool, kwargs):
-    addr = str(kwargs["to"])
-    if "attacker" in addr or addr.endswith("@evil.com"):
-        return Denied("suspicious recipient")
+def send_email_policy(kwargs):
+    addr      = str(kwargs["to"])
+    BLOCKLIST = {"@evil.com", "@phish.io"}          # known-bad domains
+    if any(addr.endswith(d) for d in BLOCKLIST):
+        return Denied("blocked recipient domain")
     return Allowed()
 ```
 
@@ -774,20 +775,20 @@ Attacker rewrite:
 
 ```
 kwargs["to"] = Value(
-    value   = "eve@contractor-partners.net",
-    sources = { Tool(drive) }              # still untrusted
+    value   = "eve@contractor-partners.net",    # not on the blocklist
+    sources = { Tool(drive) }                   # still untrusted
 )
 ```
 
-No "attacker", no "@evil.com". Allowed. Bypass is on the pattern
-check, not the calculus.
+Content check passes. Sources never consulted. Bypass is on the
+pattern, not the calculus.
 
 ---
 
 # Structural policies don't have that hole
 
 ```python
-def send_email_policy(tool, kwargs):
+def send_email_policy(kwargs):
     if kwargs["to"].sources != {User(alice)}:
         return Denied("recipient must come from user's prompt")
     return Allowed()
@@ -807,7 +808,7 @@ Lean pins the obligation:
 
 ```lean4
 theorem policy_bug_defeats_protection
-    (hpermit : π.permits τ c) (hadv : adv s) (hsrc : c.sources s) :
+    (hadv : adv s) (hsrc : c.sources s) (hpermit : π.permits τ c) :
     ¬ π.protects τ adv
 ```
 
