@@ -401,7 +401,7 @@ Readers intersect; sources union. Applied at every op.
 Python, not a DSL:
 
 ```python
-def send_email_policy(tool_name, kwargs):
+def send_email_policy(kwargs):
     recipient = kwargs["to"]
     body      = kwargs["body"]
 
