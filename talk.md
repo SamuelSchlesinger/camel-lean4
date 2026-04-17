@@ -430,10 +430,12 @@ Full Python, arbitrary predicates over values and caps, per tool.
      info.readers = { alice }
 
   3. doc = fetch_document(info.doc_name)
-     doc.sources   = { Tool(fetch_document, ...) }
+     doc.sources = { Tool(fetch_document, ...) }
+     doc.readers = { alice, bob }              ◄── doc shared with bob
 
-  4. send_email(to = info.address, ...)
+  4. send_email(to = info.address, body = doc)
      ──► info.sources ⊄ {User(alice)}          Denied in STRICT
+     ──► recipient ∈ doc.readers               OK   (bob is a reader)
      ──► fallback: ask user for confirmation
 ```
 
