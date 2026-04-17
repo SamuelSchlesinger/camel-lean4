@@ -446,14 +446,19 @@ prompt. Fallback UX: *"send to bob@company.com? [y/n]"*.
 
 # Walking the scenario: attack
 
+Setup: adversary had write access to the shared meeting-notes file.
+
 ```
   1. notes = find_notes()
-     notes.sources = { Tool(find_notes, inner=drive, adv) }  ◄── injected
+     notes.sources = { Tool(find_notes, inner=drive, author=adv) }
+                                                        ▲
+                                               attacker authored
+                                               part of the content
 
   2. info = query_ai_assistant("Extract...", {notes})
      # info.address  = "attacker@gmail.com"    ← attacker-chosen
      # info.doc_name = "confidential.txt"      ← attacker-chosen
-     info.sources = { Tool(find_notes, inner=drive, adv) }
+     info.sources = { Tool(find_notes, inner=drive, author=adv) }
 
   3. doc = fetch_document("confidential.txt")
      doc.readers = { alice, bob }
