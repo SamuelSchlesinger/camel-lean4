@@ -11,7 +11,7 @@ provenance + a reader set; per-tool policies gate calls on those.
 # The problem
 
 ```
-  user prompt  ─►  LLM  ─►  tool call  ─►  tool output  ─┐
+  user prompt  ─►  LLM  ─►  tool call  ─►   tool output  ─┐
                     ▲                                     │
                     └────────  re-parsed as context  ◄────┘
                                               ▲
@@ -42,6 +42,39 @@ Trusted and untrusted input share one pipe.
 ```
 
 Write access to the notes is all the attacker needs.
+
+---
+
+# Threat model (paper §3)
+
+Adversary writes into any data the agent will retrieve — emails,
+docs, sheets, DOM text, tool outputs. That is the entire capability.
+
+```
+  Trusted                       Untrusted
+  ─────────────────             ────────────────────────
+  user prompt                   tool sources  (`mem*`:
+  memory (if present)             emails, docs, sheets,
+  tool implementations             DOM, search results, …)
+  CaMeL interpreter             tool outputs
+  security policies             Q-LLM output
+```
+
+**PI-SEC game** (paper §4, Fig. 3):
+
+```
+  mem*  ← A(prompt, Ω_prompt)            ◄── attacker seeds state
+  Trace ← Agent(prompt, tools, mem*)
+  A wins iff some (tool, args, mem) ∈ Trace ∉ Ω_prompt
+```
+
+`Ω_prompt` = actions allowed *for this prompt*. It lives in the
+security definition only; CaMeL never enumerates it.
+
+**Non-goals (§3.1)**
+- Text-to-text attacks with no data- or control-flow consequence
+  (a lying summary; phishing content shown to the user).
+- Fully autonomous operation — CaMeL may ask the user.
 
 ---
 
@@ -466,6 +499,33 @@ Next slides: statements only. Proofs in the repo.
 
 ---
 
+# The mental model
+
+Every plan the P-LLM emits becomes a tree. Each node carries a
+capability `(readers, sources)`. The interpreter propagates the
+capability up as the tree evaluates.
+
+```
+                send_email(addr, body)      ◄── protected call
+                       │
+            ┌──────────┴──────────┐
+            │                     │
+        email.addr               body
+        readers = ⊤              readers = {alice, bob}
+        sources = {adv}          sources = {Tool(drive)}
+            ▲                     ▲
+            │                     │
+      attacker-written       fetched document
+           leaf
+```
+
+The attacker controls leaves tagged `adv`. A value is **poisoned**
+when its `sources` intersect `adv`. What Part 2 proves: at every
+protected call, the incoming values are not poisoned — and they
+are the same values the attacker-free plan would have produced.
+
+---
+
 # The data-flow graph, as an inductive type
 
 ```lean4
@@ -481,8 +541,28 @@ inductive Trace (V T P S : Type) where
 - `combine` — merge with pure binary function
 - `qParse` — Q-LLM. Structurally separate from `call`.
 
-`Policy`, `compliant`, `protects`, `advEquiv`, `run` are recursion
-over `Trace`.
+`Policy`, `compliant`, `protects`, `advEquiv`, `run` below are all
+recursion over `Trace`.
+
+---
+
+# The capability on a node
+
+Each node carries `Cap` = (readers, sources):
+
+```
+  readers  — who may see this value       (combine →  ∩)
+  sources  — who / what shaped this value (combine →  ∪)
+```
+
+Two ways to read it off a trace:
+
+```
+  t.cap                          ◄── tracked; propagated at build time
+  t.trueReaders / t.trueSources  ◄── ground truth; recurse to leaves
+```
+
+The interpreter checks `t.cap`. Theorem 1 says it matches truth.
 
 ---
 
@@ -496,12 +576,30 @@ theorem cap_eq_true (t : Trace V T P S) :
 
 ```
     tracked  (via propagation rules)      ───┐
-                                              ├── agree
+                                             ├── agree
     ground truth (union over all leaves)  ───┘
 ```
 
 Without this, every downstream theorem is about a tag that doesn't
 reflect the data.
+
+---
+
+# Policies, adversaries, poisoning
+
+```
+  Policy π          π.permits τ c  — "τ may be called with cap c"
+  compliant π t     every `call` node in t has a permitted cap
+  protects π τ adv  no cap that permits τ has adv in its sources
+  Subtrace s t      s appears as a sub-tree of t
+  adv : S → Prop    the set of adversary sources
+  advEquiv t₁ t₂    same shape; may differ at adv-tagged leaves
+  poisoned adv t    ∃ s, adv s ∧ t.cap.sources s
+                    ── "the attacker may have shaped this value"
+```
+
+Poisoning is what the downstream theorems rule out: a value that
+flows into a protected tool can never be poisoned.
 
 ---
 
