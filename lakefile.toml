@@ -1,0 +1,6 @@
+name = "camel"
+version = "0.1.0"
+defaultTargets = ["Camel"]
+
+[[lean_lib]]
+name = "Camel"
