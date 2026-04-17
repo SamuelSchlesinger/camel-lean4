@@ -364,8 +364,8 @@ Those bytes inherit the untrusted cap. Policies handle the rest.
 ```
     confidential.txt
        │
-       └─  readers = { alice, bob }    ──► gate exfiltration
-           sources = { Tool(drive) }   ──► gate injection-to-sink
+       └─  readers = { alice, bob }    ──► who may receive it   (leak check)
+           sources = { Tool(drive) }   ──► what shaped it       (taint check)
 ```
 
 Sources in the paper:
