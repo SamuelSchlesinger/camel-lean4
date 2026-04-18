@@ -91,13 +91,21 @@ structure Arch (α V T P S : Type) where
   contain `qParse` nodes, which the interpreter will execute by calling
   the Q-LLM at runtime. -/
   pLLM : List (Tagged α P S) → Trace V T P S
-  /-- Harness guarantee: the plan's tracked capability cannot reference
-  sources that were not already in the prompt.  Informally: the wrapper
-  accumulates source tags from input to output; the black-box network cannot
-  invent new ones. -/
+  /-- Harness guarantee: every source tag in the plan's tracked capability
+  either came from the prompt or was stamped onto a tool call's output by
+  the harness (an `outCap` appearing in some `call` node of the plan).
+  Informally: the wrapper accumulates source tags from input to output and
+  from tool invocations; the black-box network cannot invent sources out of
+  thin air.  It *can*, however, emit a plan that calls a tool whose `outCap`
+  contains adversarial sources — defending against that is the policy's
+  job, not the P-LLM's. -/
   pLLM_bounded :
     ∀ prompt s,
-      (pLLM prompt).cap.sources s → ∃ t ∈ prompt, t.cap.sources s
+      (pLLM prompt).cap.sources s →
+        (∃ t ∈ prompt, t.cap.sources s) ∨
+        (∃ τ sub f outCap,
+          Subtrace (Trace.call τ sub f outCap) (pLLM prompt) ∧
+          outCap.sources s)
 
 namespace Arch
 
@@ -107,18 +115,27 @@ variable {α V T P S : Type}
 
 Prompt injection is, in our model, *adversarial contribution of a source to
 an LLM's input*.  If every fragment of the P-LLM's input is clean (no
-`adv`-sourced bytes), the P-LLM's output plan cannot carry an `adv` source
-either.  This is the one security-relevant property of the architectural
-split, and it is immediate from `pLLM_bounded`. -/
+`adv`-sourced bytes) **and** every tool the plan invokes stamps only
+non-adversarial sources onto its output, then the P-LLM's output plan
+cannot carry an `adv` source either.  The second hypothesis carves out the
+one genuine source of adversarial data in a live CaMeL deployment — tool
+invocations — which the P-LLM may *cause* via its plan but cannot itself
+emit.  When every tool call in the plan is source-clean, no adversarial
+source reaches the cap. -/
 
 theorem pLLM_not_poisoned
     (arch : Arch α V T P S) (adv : S → Prop)
     {prompt : List (Tagged α P S)}
-    (hclean : ∀ t ∈ prompt, ¬ poisoned adv t) :
+    (hclean : ∀ t ∈ prompt, ¬ poisoned adv t)
+    (hToolsClean :
+      ∀ τ sub f outCap,
+        Subtrace (Trace.call τ sub f outCap) (arch.pLLM prompt) →
+        ∀ s, adv s → ¬ outCap.sources s) :
     ∀ s, adv s → ¬ (arch.pLLM prompt).cap.sources s := by
   intro s hads hs
-  obtain ⟨t, ht, hts⟩ := arch.pLLM_bounded prompt s hs
-  exact hclean t ht ⟨s, hads, hts⟩
+  rcases arch.pLLM_bounded prompt s hs with ⟨t, ht, hts⟩ | ⟨τ, sub, f, oc, hsub, hoc⟩
+  · exact hclean t ht ⟨s, hads, hts⟩
+  · exact hToolsClean τ sub f oc hsub s hads hoc
 
 /-! ## The Q-LLM's architectural contract — at the Arch level
 
@@ -165,8 +182,8 @@ theorem e2e_security
     (hπ : π.protects τ adv)
     {prompt : List (Tagged α P S)}
     (ht : π.compliant (arch.pLLM prompt))
-    {sub : Trace V T P S} {f : V → V}
-    (hsub : Subtrace (Trace.call τ sub f) (arch.pLLM prompt)) :
+    {sub : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub : Subtrace (Trace.call τ sub f outCap) (arch.pLLM prompt)) :
     ∀ s, adv s → ¬ sub.trueSources s :=
   Policy.security π τ adv hπ ht hsub
 
@@ -181,8 +198,8 @@ theorem e2e_noninterference
     (hπ : π.protects τ adv)
     {prompt : List (Tagged α P S)}
     (ht : π.compliant (arch.pLLM prompt))
-    {sub₁ : Trace V T P S} {f : V → V}
-    (hsub : Subtrace (Trace.call τ sub₁ f) (arch.pLLM prompt))
+    {sub₁ : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub : Subtrace (Trace.call τ sub₁ f outCap) (arch.pLLM prompt))
     {sub₂ : Trace V T P S}
     (heq : advEquiv adv sub₁ sub₂) :
     sub₁.eval = sub₂.eval :=

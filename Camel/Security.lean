@@ -32,9 +32,9 @@ theorem compliant_subtrace {π : Policy T P S}
 /-- If a `call τ sub f` appears anywhere in a compliant trace, the policy
 permits `τ` at the tracked capability of its argument. -/
 theorem permits_of_compliant {π : Policy T P S}
-    {τ : T} {sub : Trace V T P S} {f : V → V}
+    {τ : T} {sub : Trace V T P S} {f : V → V} {outCap : Cap P S}
     {t : Trace V T P S} (ht : compliant π t)
-    (hsub : Subtrace (Trace.call τ sub f) t) :
+    (hsub : Subtrace (Trace.call τ sub f outCap) t) :
     π.permits τ sub.cap :=
   (compliant_subtrace hsub ht).1
 
@@ -53,8 +53,8 @@ theorem security
     (π : Policy T P S) (τ : T) (bad : S → Prop)
     (hπ : π.protects τ bad)
     {t : Trace V T P S} (ht : compliant π t)
-    {sub : Trace V T P S} {f : V → V}
-    (hsub : Subtrace (Trace.call τ sub f) t) :
+    {sub : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub : Subtrace (Trace.call τ sub f outCap) t) :
     ∀ s, bad s → ¬ sub.trueSources s := by
   intro s hbad
   have hperm : π.permits τ sub.cap := permits_of_compliant ht hsub
@@ -73,8 +73,8 @@ theorem security_readers
     (π : Policy T P S) (τ : T) (p : P)
     (hπ : ∀ c, π.permits τ c → ¬ c.readers p)
     {t : Trace V T P S} (ht : compliant π t)
-    {sub : Trace V T P S} {f : V → V}
-    (hsub : Subtrace (Trace.call τ sub f) t) :
+    {sub : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub : Subtrace (Trace.call τ sub f outCap) t) :
     ¬ sub.trueReaders p := by
   intro htr
   have hperm  : π.permits τ sub.cap := permits_of_compliant ht hsub

@@ -31,17 +31,18 @@ exempt.  This is what the paper's multi-LLM split buys us: parsing untrusted
 text via the Q-LLM is always safe, because the Q-LLM has no world access and
 the capability of its output is the capability of its input. -/
 def compliant (π : Policy T P S) : Trace V T P S → Prop
-  | .leaf _ _          => True
-  | .call τ sub _      => π.permits τ (Trace.cap sub) ∧ compliant π sub
-  | .combine t₁ t₂ _   => compliant π t₁ ∧ compliant π t₂
-  | .qParse sub _      => compliant π sub
+  | .leaf _ _           => True
+  | .call τ sub _ _     => π.permits τ (Trace.cap sub) ∧ compliant π sub
+  | .combine t₁ t₂ _    => compliant π t₁ ∧ compliant π t₂
+  | .qParse sub _       => compliant π sub
 
 @[simp] theorem compliant_leaf (π : Policy T P S) (v : V) (c : Cap P S) :
     compliant π (Trace.leaf v c : Trace V T P S) ↔ True := Iff.rfl
 
 @[simp] theorem compliant_call (π : Policy T P S) (τ : T)
-    (sub : Trace V T P S) (f : V → V) :
-    compliant π (Trace.call τ sub f) ↔ π.permits τ sub.cap ∧ compliant π sub :=
+    (sub : Trace V T P S) (f : V → V) (outCap : Cap P S) :
+    compliant π (Trace.call τ sub f outCap) ↔
+      π.permits τ sub.cap ∧ compliant π sub :=
   Iff.rfl
 
 @[simp] theorem compliant_combine (π : Policy T P S)
@@ -72,8 +73,8 @@ end Policy
 list.  -/
 inductive Subtrace {V T P S : Type} : Trace V T P S → Trace V T P S → Prop where
   | refl   : {t : Trace V T P S} → Subtrace t t
-  | call   : {s sub : Trace V T P S} → {τ : T} → {f : V → V} →
-             Subtrace s sub → Subtrace s (Trace.call τ sub f)
+  | call   : {s sub : Trace V T P S} → {τ : T} → {f : V → V} → {outCap : Cap P S} →
+             Subtrace s sub → Subtrace s (Trace.call τ sub f outCap)
   | combL  : {s t₁ t₂ : Trace V T P S} → {g : V → V → V} →
              Subtrace s t₁ → Subtrace s (Trace.combine t₁ t₂ g)
   | combR  : {s t₁ t₂ : Trace V T P S} → {g : V → V → V} →

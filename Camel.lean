@@ -9,6 +9,7 @@ import Camel.MultiLLM
 import Camel.Scope
 import Camel.Example
 import Camel.EmailExample
+import Camel.BrowserExample
 
 /-!
 # CaMeL, formalised in Lean 4
@@ -39,8 +40,12 @@ as a clearly-flagged modelling caveat.
    tool effects* at protected tools is also adversary-invariant.
    — `World.run_eq_of_advEquiv`
 5. **The P-LLM cannot be directly prompt-injected**: if every input
-   fragment is clean, so is the tracked capability of every node in the
-   emitted plan.  — `Arch.pLLM_not_poisoned`
+   fragment is clean, *and* every tool the plan invokes stamps only
+   non-adversarial sources on its output, then the plan's tracked
+   capability is clean.  The second hypothesis names the one genuine
+   channel for adversarial data in a live deployment — tool invocations
+   — which the P-LLM may *cause* but cannot itself emit.
+   — `Arch.pLLM_not_poisoned`
 
 ## What this development explicitly does **not** prove
 

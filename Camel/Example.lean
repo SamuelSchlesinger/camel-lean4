@@ -89,23 +89,39 @@ theorem travelPolicy_protects_book :
   cases hs
   exact hpermit
 
-/-! ## The attacked trace — rejected by the interpreter -/
+/-! ## The attacked trace — rejected by the interpreter
 
-/-- Plan: `book("attacker-injected LX999 to Moscow")`.  Argument is
-web-sourced, so the interpreter must refuse. -/
+The realistic attack shape: `search` is invoked, returning attacker-planted
+content.  The harness stamps `.web` on `search`'s output via the call's
+`outCap`, so the returned value's tracked cap contains `.web` *even though
+the search query was user-sourced*.  `book` then refuses. -/
+
+/-- `search` tags its output with `.web`.  This is the harness's job when
+it executes `search`; the trace just records what got stamped. -/
+def searchOutCap : C := webCap
+
+/-- `book`'s output cap — nothing interesting propagates from `book`'s
+result in this scenario; `bot` will do. -/
+def bookOutCap : C := Cap.bot
+
+/-- Plan: `book(search("Paris flights Tuesday"))`.  The attacker has planted
+content in the web; `search` stamps `.web` on what it returns. -/
 def attackedTrace : Trace V Tool Principal Src :=
-  .call .book (.leaf "attacker-injected LX999 to Moscow" webCap) id
+  .call .book
+    (.call .search (.leaf "Paris flights Tuesday" userCap) id searchOutCap)
+    id bookOutCap
 
 theorem attackedTrace_not_compliant :
     ¬ travelPolicy.compliant attackedTrace := by
   rintro ⟨hpermit, _⟩
-  exact hpermit (by rfl)
+  -- `sub.cap = join userCap webCap`, which has `.web` in its sources.
+  exact hpermit (Or.inr rfl)
 
 /-! ## The honest trace — accepted, and its output is adversary-invariant -/
 
-/-- Plan: `book("AF123 to Paris")`, Alice's actual choice. -/
+/-- Plan: `book("AF123 to Paris")`, Alice's actual choice (no web lookup). -/
 def honestTrace : Trace V Tool Principal Src :=
-  .call .book (.leaf "AF123 to Paris" userCap) id
+  .call .book (.leaf "AF123 to Paris" userCap) id bookOutCap
 
 theorem honestTrace_compliant : travelPolicy.compliant honestTrace := by
   refine ⟨?_, trivial⟩
@@ -123,7 +139,7 @@ theorem honestTrace_book_arg_fixed
     sub₂.eval = "AF123 to Paris" :=
   (Policy.noninterference travelPolicy .book adv
     travelPolicy_protects_book honestTrace_compliant
-    (sub₁ := .leaf "AF123 to Paris" userCap) (f := id)
+    (sub₁ := .leaf "AF123 to Paris" userCap) (f := id) (outCap := bookOutCap)
     Subtrace.refl heq).symm
 
 /-! ## World-level non-interference on the travel world
@@ -187,9 +203,10 @@ policy-exempt) but the `book` call is rejected because the cap still carries
 `.web`. -/
 def qParseAttackTrace : Trace V Tool Principal Src :=
   .call .book
-    (.qParse (.leaf "attacker-planted itinerary" webCap)
-             (fun s => "parsed: " ++ s))
-    id
+    (.qParse
+      (.call .search (.leaf "Paris flights Tuesday" userCap) id searchOutCap)
+      (fun s => "parsed: " ++ s))
+    id bookOutCap
 
 /-- The interpreter *does* let the Q-LLM run on web-sourced input (no policy
 gate on `qParse`), but it still refuses the downstream `book` — this is what
@@ -197,8 +214,9 @@ the cap-preservation of the Q-LLM buys us. -/
 theorem qParseAttackTrace_not_compliant :
     ¬ travelPolicy.compliant qParseAttackTrace := by
   rintro ⟨hpermit, _⟩
-  -- The Q-LLM preserves cap, so the `book` argument's cap still says `.web`.
-  exact hpermit (by rfl)
+  -- The Q-LLM preserves cap, so the `book` argument's cap still contains
+  -- the `.web` tag that `search` stamped on its output.
+  exact hpermit (Or.inr rfl)
 
 /-- By contrast, a Q-LLM step on *user-sourced* input and a user-sourced
 booking remains compliant.  Parsing is orthogonal to security: it neither
@@ -206,7 +224,7 @@ helps nor hurts the policy check. -/
 def qParseHonestTrace : Trace V Tool Principal Src :=
   .call .book
     (.qParse (.leaf "AF123 to Paris" userCap) id)
-    id
+    id bookOutCap
 
 theorem qParseHonestTrace_compliant : travelPolicy.compliant qParseHonestTrace := by
   refine ⟨?_, trivial⟩

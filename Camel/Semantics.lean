@@ -44,12 +44,12 @@ calls, using `eval` to compute each tool's argument.
   value (consumed via `Trace.eval`); it cannot reach into the world.  This
   is structural, not a deployment discipline. -/
 def run (world : World V T W) : Trace V T P S → W → W
-  | .leaf _ _,        w => w
-  | .call τ sub _,    w =>
+  | .leaf _ _,         w => w
+  | .call τ sub _ _,   w =>
       world.effect τ sub.eval (run world sub w)
-  | .combine t₁ t₂ _, w =>
+  | .combine t₁ t₂ _,  w =>
       run world t₂ (run world t₁ w)
-  | .qParse sub _,    w => run world sub w
+  | .qParse sub _,     w => run world sub w
 
 /-- **Q-LLM calls are world-effectless.**  Wrapping a subtrace in `qParse`
 changes nothing about the final world. -/
@@ -88,7 +88,7 @@ theorem run_eq_of_advEquiv
   induction heq generalizing w with
   | leafClean _ _ _ => rfl
   | leafAdv _ _ _ _ => rfl
-  | @call τ _ sub₁ sub₂ heq ih =>
+  | @call τ _ _ sub₁ sub₂ heq ih =>
       show world.effect τ sub₁.eval (run world sub₁ w)
          = world.effect τ sub₂.eval (run world sub₂ w)
       by_cases hP : Prot τ

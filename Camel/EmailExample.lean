@@ -98,32 +98,40 @@ theorem emailPolicy_protects_sendEmail :
 
 The attacker has edited the notes file.  The P-LLM's plan follows Alice's
 instruction literally: "extract the recipient from the notes, then email the
-document."  The Q-LLM parses the compromised notes and returns
-`"attacker@gmail.com"`.  The result is fed to `sendEmail`.
+document."  The interpreter invokes `findNotes` to retrieve the compromised
+file, stamping `.drive` on what it returns via the `outCap` on the call.
+The Q-LLM parses the result and returns `"attacker@gmail.com"`.  The
+extracted recipient — still carrying `.drive` from `findNotes` — feeds
+`sendEmail`. -/
 
-Our `Trace` doesn't model tools assigning fresh capabilities to their
-outputs, so we encode the notes' content directly as a leaf with `driveCap`
-— representing what the interpreter would produce at runtime from
-`findNotes`. -/
+/-- `findNotes` stamps `.drive` on its output.  The harness's job;
+the trace records it on the call's `outCap`. -/
+def findNotesOutCap : C := driveCap
 
-/-- The attacker-planted note content, tagged as originating from the drive
-notes file. -/
-def compromisedNote : Trace V Tool Principal Src :=
-  .leaf "attacker@gmail.com" driveCap
+/-- `sendEmail` and `fetchDoc` don't meaningfully propagate sources to
+downstream consumers in these scenarios — their `outCap`s are `bot`. -/
+def sendEmailOutCap : C := Cap.bot
+def fetchDocOutCap : C := Cap.bot
 
-/-- The attack plan: Q-LLM parses the untrusted note, the extracted recipient
-feeds `sendEmail`.  `qParse` preserves the capability, so the recipient's cap
-still lists `.drive`. -/
+/-- The attack plan: `findNotes` is called on a user-sourced request, the
+Q-LLM parses the (drive-tagged) notes, and the extracted recipient feeds
+`sendEmail`.  Cap propagation: `findNotes`'s output is `join userCap
+driveCap`, which contains `.drive`; `qParse` preserves it; `sendEmail`
+refuses. -/
 def attackTrace : Trace V Tool Principal Src :=
-  .call .sendEmail (.qParse compromisedNote id) id
+  .call .sendEmail
+    (.qParse
+      (.call .findNotes (.leaf "meeting notes lookup" userCap) id findNotesOutCap)
+      id)
+    id sendEmailOutCap
 
 /-- The interpreter rejects the attack.  The Q-LLM was free to run (Q-LLM is
 policy-exempt), but the downstream `sendEmail` refuses because the recipient
-still carries the `drive` source. -/
+still carries the `drive` source that `findNotes` stamped on it. -/
 theorem attackTrace_not_compliant :
     ¬ emailPolicy.compliant attackTrace := by
   rintro ⟨hpermit, _⟩
-  exact hpermit.1 rfl
+  exact hpermit.1 (Or.inr rfl)
 
 /-! ## The honest plan — accepted, and its output is adversary-invariant -/
 
@@ -133,7 +141,7 @@ def honestRecipient : Trace V Tool Principal Src :=
 
 /-- Honest plan: send the document to Bob, whose address Alice specified. -/
 def honestTrace : Trace V Tool Principal Src :=
-  .call .sendEmail honestRecipient id
+  .call .sendEmail honestRecipient id sendEmailOutCap
 
 theorem honestTrace_compliant : emailPolicy.compliant honestTrace := by
   refine ⟨⟨?_, ?_⟩, trivial⟩
@@ -151,7 +159,7 @@ theorem honestTrace_recipient_fixed
     sub₂.eval = "bob@work.com" :=
   (Policy.noninterference emailPolicy .sendEmail adv
     emailPolicy_protects_sendEmail honestTrace_compliant
-    (sub₁ := honestRecipient) (f := id)
+    (sub₁ := honestRecipient) (f := id) (outCap := sendEmailOutCap)
     Subtrace.refl heq).symm
 
 /-! ## World-level non-interference

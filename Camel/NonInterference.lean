@@ -41,20 +41,28 @@ namespace Trace
 
 variable {V T P S : Type}
 
-/-- `t.advFree adv` — no leaf of `t` has any adv-source in its tracked
-capability.  Equivalently (see `advFree_iff_trueSources`), the ground-truth
+/-- `t.advFree adv` — no leaf, and no call-node `outCap`, of `t` carries any
+adv-source.  Equivalently (see `advFree_iff_trueSources`), the ground-truth
 source set of `t` is disjoint from `adv`. -/
 def advFree (adv : S → Prop) : Trace V T P S → Prop
-  | .leaf _ c        => ∀ s, adv s → ¬ c.sources s
-  | .call _ sub _    => advFree adv sub
-  | .combine t₁ t₂ _ => advFree adv t₁ ∧ advFree adv t₂
-  | .qParse sub _    => advFree adv sub
+  | .leaf _ c         => ∀ s, adv s → ¬ c.sources s
+  | .call _ sub _ oc  => advFree adv sub ∧ (∀ s, adv s → ¬ oc.sources s)
+  | .combine t₁ t₂ _  => advFree adv t₁ ∧ advFree adv t₂
+  | .qParse sub _     => advFree adv sub
 
 theorem advFree_iff_trueSources (adv : S → Prop) (t : Trace V T P S) :
     t.advFree adv ↔ ∀ s, adv s → ¬ t.trueSources s := by
   induction t with
   | leaf v c => rfl
-  | call τ sub f ih => exact ih
+  | call τ sub f oc ih =>
+      show sub.advFree adv ∧ _ ↔ _
+      rw [ih]
+      constructor
+      · rintro ⟨hsub, hoc⟩ s hs hts
+        exact hts.elim (hsub s hs) (hoc s hs)
+      · intro h
+        refine ⟨fun s hs hts => h s hs (Or.inl hts),
+                fun s hs hoc => h s hs (Or.inr hoc)⟩
   | qParse sub f ih => exact ih
   | combine t₁ t₂ g ih₁ ih₂ =>
       show t₁.advFree adv ∧ t₂.advFree adv ↔ _
@@ -79,8 +87,8 @@ then every `τ`-call appearing in `t` has an `advFree` argument subtree. -/
 theorem advFree_of_compliant
     {π : Policy T P S} {τ : T} {adv : S → Prop} (hπ : π.protects τ adv)
     {t : Trace V T P S} (ht : compliant π t)
-    {sub : Trace V T P S} {f : V → V}
-    (hsub : Subtrace (Trace.call τ sub f) t) :
+    {sub : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub : Subtrace (Trace.call τ sub f outCap) t) :
     sub.advFree adv := by
   rw [Trace.advFree_iff_trueSources]
   exact security π τ adv hπ ht hsub
@@ -104,10 +112,10 @@ inductive advEquiv {V T P S : Type} (adv : S → Prop) :
       (c : Cap P S) → (v₁ v₂ : V) → (∃ s, adv s ∧ c.sources s) →
       advEquiv adv (.leaf v₁ c) (.leaf v₂ c)
   | call :
-      (τ : T) → (f : V → V) →
+      (τ : T) → (f : V → V) → (outCap : Cap P S) →
       {sub₁ sub₂ : Trace V T P S} →
       advEquiv adv sub₁ sub₂ →
-      advEquiv adv (.call τ sub₁ f) (.call τ sub₂ f)
+      advEquiv adv (.call τ sub₁ f outCap) (.call τ sub₂ f outCap)
   | combine :
       (g : V → V → V) →
       {a₁ a₂ b₁ b₂ : Trace V T P S} →
@@ -138,9 +146,9 @@ theorem eval_eq_of_advFree_advEquiv {adv : S → Prop}
   | leafAdv c v₁ v₂ h =>
       obtain ⟨s, hadv, hs⟩ := h
       exact absurd hs (hfree s hadv)
-  | call τ f _ ih =>
+  | call τ f oc _ ih =>
       show f _ = f _
-      exact congrArg f (ih hfree)
+      exact congrArg f (ih hfree.1)
   | combine g _ _ ih₁ ih₂ =>
       show g _ _ = g _ _
       rw [ih₁ hfree.1, ih₂ hfree.2]
@@ -172,8 +180,8 @@ value passed to a protected `τ`-call.  This is the formal analogue of
 theorem noninterference
     (π : Policy T P S) (τ : T) (adv : S → Prop) (hπ : π.protects τ adv)
     {t₁ : Trace V T P S} (h₁ : compliant π t₁)
-    {sub₁ : Trace V T P S} {f : V → V}
-    (hsub₁ : Subtrace (Trace.call τ sub₁ f) t₁)
+    {sub₁ : Trace V T P S} {f : V → V} {outCap : Cap P S}
+    (hsub₁ : Subtrace (Trace.call τ sub₁ f outCap) t₁)
     {sub₂ : Trace V T P S}
     (heqSub : advEquiv adv sub₁ sub₂) :
     sub₁.eval = sub₂.eval :=
